@@ -658,6 +658,18 @@ function applyLinuxFastModeModelGuardPatch(currentSource) {
     );
   }
 
+  // Codex 26.519.81530 shipped its own crash fix using `Array.isArray()` ahead
+  // of the `&&`. Rewrite to the `?.` form so the additional `e?.` guard still
+  // lands; the `Array.isArray` check becomes redundant once `?.length` is used.
+  const upstreamGuardedNeedle = /function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{return Array\.isArray\(\2\.serviceTiers\)&&\2\.serviceTiers\.length>0\|\|\2\.additionalSpeedTiers\?\.includes\(([A-Za-z_$][\w$]*)\)===!0\}/u;
+  if (upstreamGuardedNeedle.test(currentSource)) {
+    return currentSource.replace(
+      upstreamGuardedNeedle,
+      (match, fnName, modelVar, fastTierVar) =>
+        `function ${fnName}(${modelVar}){return(${modelVar}?.serviceTiers?.length??0)>0||${modelVar}?.additionalSpeedTiers?.includes(${fastTierVar})===!0}`,
+    );
+  }
+
   if (currentSource.includes("serviceTiers.length>0") && currentSource.includes("additionalSpeedTiers")) {
     console.warn(
       "WARN: Could not find fast-mode model guard insertion point — skipping fast-mode crash guard patch",

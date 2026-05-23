@@ -1122,6 +1122,16 @@ test("guards fast-mode model tier lookup when serviceTiers is missing", () => {
   assert.doesNotMatch(patched, /e\.serviceTiers\.length/);
 });
 
+test("rewrites fast-mode guard even when codex bundle already wraps with Array.isArray", () => {
+  const source =
+    "function m(e){return Array.isArray(e.serviceTiers)&&e.serviceTiers.length>0||e.additionalSpeedTiers?.includes(u)===!0}";
+
+  const patched = applyPatchTwice(applyLinuxFastModeModelGuardPatch, source);
+
+  assert.match(patched, /\(e\?\.serviceTiers\?\.length\?\?0\)>0/);
+  assert.doesNotMatch(patched, /Array\.isArray/);
+});
+
 test("warns when a matched webview opaque bundle has no known insertion point", () => {
   const { warnings } = captureWarns(() =>
     applyLinuxOpaqueWindowsDefaultPatch("function runtime(){let C=theme;if(C.opaqueWindows&&!ba()){}}"),
@@ -2491,6 +2501,20 @@ test("shows current use-is-plugins-enabled Computer Use UI on Linux", () => {
     patched,
     /let _=a&&i&&\(s===`linux`\|\|u&&\(o\|\|g\)\),v=_&&!o&&\(s===`linux`\|\|h\.enabled\)&&!h\.isLoading,y=_&&s!==`linux`&&h\.isLoading,b=_&&\(o\|\|s!==`linux`&&h\.isLoading\),x;/,
   );
+});
+
+test("patches platform predicate only when codex 81530 hoists the cascade into a helper", () => {
+  const source =
+    "function m(e){return e===`macOS`||e===`windows`}" +
+    "function g({enabled:e,isComputerUseFeatureEnabled:t,isComputerUseFeatureLoading:n,isComputerUseGateEnabled:r,isHostCompatiblePlatform:i,isHostLocal:a,isPlatformLoading:o,windowType:s}){return e?`available`:`disabled`}" +
+    "function h(e){let n=(0,f.c)(15),{enabled:r,hostId:i}=e,a=r===void 0?!0:r,{isLoading:o,platform:s}=u(),c=t(i).kind===`local`,d=l(`1506311413`);let h={featureName:`computer_use`,hostId:i};let _=p(h);let v=g({enabled:a,isComputerUseFeatureEnabled:_.enabled,isComputerUseFeatureLoading:_.isLoading,isComputerUseGateEnabled:d,isHostCompatiblePlatform:m(s),isHostLocal:c,isPlatformLoading:o,windowType:`electron`});return v}";
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyLinuxComputerUseRendererAvailabilityPatch(source),
+  );
+
+  assert.match(patched, /function m\(e\)\{return e===`macOS`\|\|e===`windows`\|\|e===`linux`\}/);
+  assert.deepEqual(warnings, []);
 });
 
 test("warns without partially patching when Computer Use renderer availability gate drifts", () => {

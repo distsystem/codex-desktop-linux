@@ -300,6 +300,15 @@ function applyLinuxComputerUseRendererAvailabilityPatch(currentSource) {
     return patchedSource;
   }
 
+  // Codex 26.519.81530 lifted the inline boolean cascade into a helper that
+  // takes {isHostCompatiblePlatform, windowType, ...} and returns the
+  // availability status string. The helper consults the same platform
+  // predicate, so the predicate extension above already routes Linux through;
+  // no cascade rewrite is necessary on this shape.
+  if (currentSource.includes("isHostCompatiblePlatform")) {
+    return platformPredicateChanged ? patchedSource : currentSource;
+  }
+
   if (hasComputerUseAvailabilityGate() || availabilityGateFound) {
     console.warn(
       "WARN: Could not find Computer Use renderer availability gate — skipping Linux Computer Use UI availability patch",

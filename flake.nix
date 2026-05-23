@@ -22,12 +22,17 @@
               !(pkgs.lib.hasSuffix "/.codex" pathStr || pkgs.lib.hasInfix "/.codex/" pathStr));
         };
 
+        codexVersion = "26.519.81530";
+
+        # Pin the macOS payload to the appcast-versioned arm64 zip instead of the
+        # rolling Codex.dmg: a fixed version stops the build from drifting onto an
+        # upstream release the patches do not yet target. Only the JS asar + webview
+        # are consumed (native modules are rebuilt), so the macOS arch is irrelevant.
         codexDmg = pkgs.fetchurl {
-          url = "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg";
-          hash = "sha256-yanuEZhqD4gBWLgeRZtktoRkI5b0nq9/oOAY9KjDe0I=";
+          url = "https://persistent.oaistatic.com/codex-app-prod/Codex-darwin-arm64-${codexVersion}.zip";
+          hash = "sha256-TBFBY5Gw0S8nOXhNt8ECSB92EIiNNM8JFA8pKLUpUvQ=";
         };
 
-        codexVersion = "26.519.81530";
         electronVersion = "42.1.0";
         electronPlatform =
           {
