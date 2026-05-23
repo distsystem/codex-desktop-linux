@@ -1,322 +1,59 @@
 name: CI
 
+# Soft-fork CI in rebase mode. Our main is force-pushed only after this CI
+# is green, so main is always last-known-good — no separate tag is needed.
+# The deliverable is the pacman package; nix is just a local dev path here, so
+# CI focuses on the PKGBUILD. The patch gate is built into the PKGBUILD itself
+# (check() runs validate-patch-report.js), so every makepkg — CI here, plus
+# AUR users — automatically validates required-upstream patches against the
+# pinned versioned zip.
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
-
-env:
-  CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  CI_PACKAGE_VERSION: 2026.04.28.000000+ci${{ github.run_number }}
 
 jobs:
-  rust-and-smoke:
-    name: Rust and Smoke Tests
+  verify-pkgbuild-on-arch:
+    name: Verify PKGBUILD on Arch (makepkg)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust components
-        run: rustup component add rustfmt clippy
-
-      - name: Check shell syntax
+      - name: Stage PKGBUILD and rewrite source to the current checkout
         run: |
           set -euo pipefail
-          bash -n install.sh
-          bash -n scripts/install-deps.sh
-          bash -n scripts/build-deb.sh
-          bash -n scripts/build-rpm.sh
-          bash -n scripts/build-pacman.sh
-          bash -n scripts/build-appimage.sh
-          bash -n scripts/ci/update-nix-hashes.sh
-          bash -n scripts/ci/validate-nix-pins.sh
+          mkdir -p /tmp/pkgbuild
+          cp packaging/linux/PKGBUILD            /tmp/pkgbuild/PKGBUILD
+          cp packaging/linux/codex-desktop-linux.install /tmp/pkgbuild/codex-desktop-linux.install
+          # CI validates the current commit, not whatever main points at on
+          # origin (we are validating *before* push). Rewrite the git source
+          # to clone the mounted checkout instead.
+          sed -i 's|git+https://github.com/distsystem/codex-desktop-linux\.git#branch=main|git+file:///repo|' /tmp/pkgbuild/PKGBUILD
 
-      - name: Check Node syntax and tests
+      - name: makepkg in Arch container (build + check + package)
         run: |
-          set -euo pipefail
-          bash scripts/ci/run-node-checks.sh
-
-      - name: Check Rust formatting
-        run: cargo fmt --check
-
-      - name: Run Rust clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run Rust checks
-        run: cargo check --workspace --all-targets
-
-      - name: Run Rust tests
-        run: cargo test --workspace --all-targets
-
-      - name: Run script smoke tests
-        run: |
-          set -euo pipefail
-          bash tests/scripts_smoke.sh
-          {
-            echo "## Rust and Smoke Tests"
-            echo ""
-            echo "- Shell syntax checks passed."
-            echo "- Node syntax and tests passed."
-            echo "- Rust formatting, clippy, check, and tests passed."
-            echo "- Script smoke tests passed."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  package-deb:
-    name: Build Debian Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create minimal packaged app fixture
-        run: |
-          set -euo pipefail
-          rm -rf codex-app dist
-          tests/fixtures/create-packaged-app-fixture.sh codex-app
-
-      - name: Build Debian package
-        run: PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-deb.sh
-
-      - name: Inspect Debian package
-        run: |
-          set -euo pipefail
-          deb_file="$(find dist -maxdepth 1 -name 'codex-desktop_*.deb' -print -quit)"
-          test -n "$deb_file"
-          dpkg-deb -I "$deb_file"
-          dpkg-deb -c "$deb_file" | tee /tmp/deb-contents.txt >/dev/null
-          grep -q './usr/bin/codex-update-manager' /tmp/deb-contents.txt
-          grep -q './usr/lib/systemd/user/codex-update-manager.service' /tmp/deb-contents.txt
-          grep -q './opt/codex-desktop/update-builder/install.sh' /tmp/deb-contents.txt
-          grep -q './opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh' /tmp/deb-contents.txt
-          {
-            echo "## Debian Package Validation"
-            echo ""
-            echo "- Built: \`$(basename "$deb_file")\`"
-            echo "- Verified updater binary, user service, update-builder bundle, and packaged runtime helper."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  nix:
-    name: Nix Package Builds
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      NIX_CONFIG: |
-        experimental-features = nix-command flakes
-        max-jobs = 1
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - uses: cachix/install-nix-action@v27
-
-      - name: Configure Cachix for Nix build substitutions
-        uses: cachix/cachix-action@v17
-        with:
-          name: codex-desktop-linux
-          skipPush: true
-
-      - name: Install validation dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full
-
-      - name: Detect Nix pin file changes
-        id: nix-pin-files
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          changed=false
-          changed_files="$(mktemp)"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              --paginate \
-              --jq '.[].filename' | tee "$changed_files"
-            if grep -Eq '^(flake\.nix|flake\.lock|nix/native-modules/package\.json|nix/native-modules/package-lock\.json|scripts/ci/update-nix-hashes\.sh|scripts/ci/validate-nix-pins\.sh)$' "$changed_files"; then
-              changed=true
-              {
-                echo "## Nix Pin File Changes"
-                echo ""
-                echo "- Rollout skip is disabled because this PR changes Nix pin source-of-truth files."
-                echo "- Changed guarded files:"
-                grep -E '^(flake\.nix|flake\.lock|nix/native-modules/package\.json|nix/native-modules/package-lock\.json|scripts/ci/update-nix-hashes\.sh|scripts/ci/validate-nix-pins\.sh)$' "$changed_files" | sed 's/^/  - `/' | sed 's/$/`/'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          rm -f "$changed_files"
-
-      - name: Validate Nix pins against upstream DMG
-        id: nix-pin-validation
-        env:
-          NIX_PIN_FILES_CHANGED: ${{ steps.nix-pin-files.outputs.changed }}
-        run: |
-          set -euo pipefail
-          validation_log="$(mktemp)"
-          set +e
-          scripts/ci/validate-nix-pins.sh 2>&1 | tee "$validation_log"
-          validation_status="${PIPESTATUS[0]}"
-          set -e
-          if [ "$validation_status" -ne 0 ]; then
-            if [ "$GITHUB_EVENT_NAME" = "pull_request" ] \
-                && [ "$NIX_PIN_FILES_CHANGED" != "true" ] \
-                && grep -Eq "Codex app version pin mismatch|Electron version pin mismatch|native-modules .* pin mismatch" "$validation_log"; then
-              {
-                echo "## Nix Pin Validation"
-                echo ""
-                echo "- Skipped package-output builds because upstream \`Codex.dmg\` metadata is ahead of the committed flake pins during rollout."
-                echo "- This is PR-only; main-branch validation still fails so the scheduled hash-refresh workflow can open a full pin-refresh PR from the current upstream DMG."
-              } >> "$GITHUB_STEP_SUMMARY"
-              echo "skip_package_outputs=true" >> "$GITHUB_OUTPUT"
-              rm -f "$validation_log"
-              exit 0
-            fi
-            exit "$validation_status"
-          fi
-          echo "skip_package_outputs=false" >> "$GITHUB_OUTPUT"
-          rm -f "$validation_log"
-
-      - name: Check flake evaluation
-        run: nix flake check --no-build
-
-      - name: Build Nix package outputs
-        if: steps.nix-pin-validation.outputs.skip_package_outputs != 'true'
-        env:
-          NIX_PIN_FILES_CHANGED: ${{ steps.nix-pin-files.outputs.changed }}
-        run: |
-          set -euo pipefail
-          outputs=(
-            .#installer
-            .#codex-desktop
-            .#codex-desktop-computer-use-ui
-            .#codex-desktop-remote-mobile-control
-            .#codex-desktop-computer-use-ui-remote-mobile-control
-          )
-          for output in "${outputs[@]}"; do
-            build_log="$(mktemp)"
-            if ! nix build "$output" --no-link --print-build-logs --max-jobs 1 2>&1 | tee "$build_log"; then
-              if [ "$GITHUB_EVENT_NAME" = "pull_request" ] \
-                  && [ "$NIX_PIN_FILES_CHANGED" != "true" ] \
-                  && grep -q "hash mismatch in fixed-output derivation" "$build_log" \
-                  && grep -q "Codex.dmg.drv" "$build_log"; then
-                {
-                  echo "## Nix Package Builds"
-                  echo ""
-                  echo "- Skipped package-output builds after \`$output\` because upstream \`Codex.dmg\` is rolling between fixed-output hashes."
-                  echo "- This does not mask non-DMG Nix failures; main-branch builds still fail on this condition."
-                  echo "- The scheduled hash-refresh workflow owns updating the committed DMG pin from the current upstream DMG."
-                } >> "$GITHUB_STEP_SUMMARY"
-                exit 0
-              fi
-              exit 1
-            fi
-            rm -f "$build_log"
-            store_usage="$(df -P /nix/store | awk 'NR == 2 { gsub("%", "", $5); print $5 }')"
-            if [ "${store_usage:-0}" -ge 85 ]; then
-              nix store gc || true
-            fi
-          done
-
-  package-rpm:
-    name: Build RPM Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install RPM tooling
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y rpm
-          rpmbuild --version
-
-      - name: Create minimal packaged app fixture
-        run: |
-          set -euo pipefail
-          rm -rf codex-app dist
-          tests/fixtures/create-packaged-app-fixture.sh codex-app
-
-      - name: Build RPM package
-        run: PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-rpm.sh
-
-      - name: Inspect RPM package
-        run: |
-          set -euo pipefail
-          rpm_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.rpm' -print -quit)"
-          test -n "$rpm_file"
-          rpm -qip "$rpm_file"
-          rpm -qlp "$rpm_file" | tee /tmp/rpm-contents.txt >/dev/null
-          grep -q '/usr/bin/codex-update-manager' /tmp/rpm-contents.txt
-          grep -q '/usr/lib/systemd/user/codex-update-manager.service' /tmp/rpm-contents.txt
-          grep -q '/opt/codex-desktop/update-builder/install.sh' /tmp/rpm-contents.txt
-          grep -q '/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh' /tmp/rpm-contents.txt
-          {
-            echo "## RPM Package Validation"
-            echo ""
-            echo "- Built: \`$(basename "$rpm_file")\`"
-            echo "- Verified updater binary, user service, update-builder bundle, and packaged runtime helper."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  package-pacman:
-    name: Build Pacman Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and inspect pacman package in Arch Linux
-        run: |
-          set -euo pipefail
           docker run --rm \
-            -e CI_PACKAGE_VERSION="$CI_PACKAGE_VERSION" \
-            -v "$PWD:/work" \
-            -w /work \
+            -v "$PWD:/repo:ro" \
+            -v "/tmp/pkgbuild:/build" \
+            -w /build \
             archlinux:base-devel \
-            bash -lc '
+            bash -c '
               set -euo pipefail
-              pacman -Syu --noconfirm --needed rust nodejs npm zstd sudo
+              pacman -Syu --noconfirm --needed git 7zip nodejs npm rust curl unzip sudo
               useradd -m builder
-              chown -R builder:builder /work
-
-              runuser -u builder -- bash -lc '"'"'
-                set -euo pipefail
-                rm -rf codex-app dist
-                tests/fixtures/create-packaged-app-fixture.sh codex-app
-
-                cargo build --release -p codex-update-manager
-                PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-pacman.sh
-
-                pkg_file="$(find dist -maxdepth 1 -name "codex-desktop-*.pkg.tar.*" -print -quit)"
-                test -n "$pkg_file"
-                pacman -Qip "$pkg_file"
-                pacman -Qlp "$pkg_file" | tee /tmp/pacman-contents.txt >/dev/null
-                grep -q "usr/bin/codex-update-manager" /tmp/pacman-contents.txt
-                grep -q "usr/lib/systemd/user/codex-update-manager.service" /tmp/pacman-contents.txt
-                grep -q "opt/codex-desktop/update-builder/install.sh" /tmp/pacman-contents.txt
-                grep -q "opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" /tmp/pacman-contents.txt
-                printf "%s\n" "$(basename "$pkg_file")" > /tmp/pacman-package-name.txt
-              '"'"'
-              cp /tmp/pacman-package-name.txt /work/.pacman-package-name.txt
+              chown -R builder:builder /build
+              runuser -u builder -- bash -c "cd /build && PKGDEST=/build makepkg -f --nodeps --skipinteg"
+              pkg=$(find /build -maxdepth 1 -name "codex-desktop-linux-*.pkg.tar.zst" -print -quit)
+              test -n "$pkg" || { echo "no package produced"; exit 1; }
+              echo "Built: $pkg"
+              contents=$(pacman -Qlp "$pkg")
+              for path in /opt/codex-desktop/start.sh /usr/bin/codex-desktop /usr/share/applications/codex-desktop.desktop; do
+                  echo "$contents" | grep -qFx "codex-desktop-linux $path" || { echo "missing $path"; exit 1; }
+              done
+              echo "Package layout OK."
             '
-
-      - name: Write pacman validation summary
-        run: |
-          set -euo pipefail
-          pkg_file="$(cat .pacman-package-name.txt)"
-          {
-            echo "## Pacman Package Validation"
-            echo ""
-            echo "- Built: \`$pkg_file\`"
-            echo "- Verified updater binary, user service, update-builder bundle, and packaged runtime helper."
-          } >> "$GITHUB_STEP_SUMMARY"

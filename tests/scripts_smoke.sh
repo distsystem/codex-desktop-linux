@@ -2897,184 +2897,6 @@ test_setup_native_wizard_cleanup_deletes_only_confirmed_paths() {
     assert_contains "$output_log" "Skipped $plugin_cache"
 }
 
-make_update_nix_hash_fixture() {
-    local fixture="$1"
-    local hash_a="sha256-VVQNu/E7Wuyxfsy93Gorknr0t7H7wy9kxMOiBZYOo/o="
-
-    mkdir -p "$fixture/scripts/ci" "$fixture/nix/native-modules" "$fixture/bin"
-    cp "$REPO_DIR/scripts/ci/update-nix-hashes.sh" "$fixture/scripts/ci/update-nix-hashes.sh"
-    chmod +x "$fixture/scripts/ci/update-nix-hashes.sh"
-
-    cat > "$fixture/flake.nix" <<EOF
-{
-  codexVersion = "26.623.81905";
-  electronVersion = "42.1.0";
-
-  codexDmg = pkgs.fetchurl {
-    url = "https://persistent.oaistatic.com/codex-app-prod/ChatGPT.dmg";
-    hash = "$hash_a";
-  };
-
-  x86_64-linux = {
-    hash = "$hash_a";
-  };
-
-  aarch64-linux = {
-    hash = "$hash_a";
-  };
-
-  electronHeaders = pkgs.fetchurl {
-    hash = "$hash_a";
-  };
-}
-EOF
-    printf '%s\n' '{"dependencies":{"electron":"42.1.0","better-sqlite3":"12.9.0","node-pty":"1.1.0"}}' \
-        > "$fixture/nix/native-modules/package.json"
-    printf '%s\n' '{"name":"native-modules","lockfileVersion":3,"packages":{}}' \
-        > "$fixture/nix/native-modules/package-lock.json"
-
-    cat > "$fixture/scripts/ci/validate-nix-pins.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "validate stub invoked"
-if [ "${VALIDATE_PIN_CHANGE:-0}" = "1" ]; then
-    python3 - "$REPO_DIR/flake.nix" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text()
-text = re.sub(r'(codexVersion\s*=\s*")[^"]+(";)', r'\g<1>99.0.0\2', text, count=1)
-path.write_text(text)
-PY
-fi
-EOF
-    chmod +x "$fixture/scripts/ci/validate-nix-pins.sh"
-
-    cat > "$fixture/bin/curl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-out=""
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        -o)
-            shift
-            out="${1:-}"
-            ;;
-    esac
-    shift || true
-done
-if [ -n "$out" ]; then
-    printf 'fake dmg\n' > "$out"
-    exit 0
-fi
-version="26.623.81905"
-if [ "${VALIDATE_PIN_CHANGE:-0}" = "1" ]; then
-    version="99.0.0"
-fi
-printf '<rss><channel><item><sparkle:shortVersionString>%s</sparkle:shortVersionString></item></channel></rss>\n' "$version"
-EOF
-    chmod +x "$fixture/bin/curl"
-
-    cat > "$fixture/bin/nix" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-case "${1:-}" in
-    hash)
-        printf '%s\n' "${NIX_HASH:-sha256-VVQNu/E7Wuyxfsy93Gorknr0t7H7wy9kxMOiBZYOo/o=}"
-        ;;
-    store)
-        printf '{"hash":"%s"}\n' "${NIX_HASH:-sha256-VVQNu/E7Wuyxfsy93Gorknr0t7H7wy9kxMOiBZYOo/o=}"
-        ;;
-    build)
-        printf 'nix %s\n' "$*" >> "$CALL_LOG"
-        printf 'fake nix build ok\n'
-        ;;
-    *)
-        echo "unexpected nix call: $*" >&2
-        exit 2
-        ;;
-esac
-EOF
-    chmod +x "$fixture/bin/nix"
-
-    cat > "$fixture/bin/nix-store" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'nix-store %s\n' "$*" >> "$CALL_LOG"
-EOF
-    chmod +x "$fixture/bin/nix-store"
-
-    cat > "$fixture/bin/npm" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'npm %s\n' "$*" >> "$CALL_LOG"
-EOF
-    chmod +x "$fixture/bin/npm"
-
-    git -C "$fixture" init -q
-    git -C "$fixture" config user.name "Test"
-    git -C "$fixture" config user.email "test@example.invalid"
-    git -C "$fixture" add flake.nix nix/native-modules/package.json nix/native-modules/package-lock.json
-    git -C "$fixture" commit -q -m "fixture"
-}
-
-run_update_nix_hash_fixture() {
-    local label="$1"
-    local validate_pin_change="$2"
-    local nix_hash="$3"
-    local fixture="$TMP_DIR/$label"
-
-    make_update_nix_hash_fixture "$fixture"
-    : > "$fixture/calls.log"
-    PATH="$fixture/bin:$PATH" \
-        REPO_DIR="$fixture" \
-        FLAKE_FILE="$fixture/flake.nix" \
-        UPSTREAM_DMG_PATH="$fixture/Codex.dmg" \
-        VERIFY_LOG="$fixture/verify.log" \
-        CALL_LOG="$fixture/calls.log" \
-        VALIDATE_PIN_CHANGE="$validate_pin_change" \
-        NIX_HASH="$nix_hash" \
-        bash "$fixture/scripts/ci/update-nix-hashes.sh" > "$fixture/output.log" 2>&1
-}
-
-test_update_nix_hashes_skips_unchanged_package_verification() {
-    info "Checking Nix hash refresh skips package verification when pins are unchanged"
-    local fixture="$TMP_DIR/nix-hash-refresh-unchanged"
-    local hash_a="sha256-VVQNu/E7Wuyxfsy93Gorknr0t7H7wy9kxMOiBZYOo/o="
-
-    run_update_nix_hash_fixture "$(basename "$fixture")" 0 "$hash_a"
-
-    assert_contains "$fixture/output.log" "Nix pins unchanged; skipping package-output verification."
-    assert_not_contains "$fixture/calls.log" "nix-store"
-    assert_not_contains "$fixture/calls.log" "nix build"
-}
-
-test_update_nix_hashes_verifies_changed_pins() {
-    info "Checking Nix hash refresh still verifies changed pins"
-    local fixture="$TMP_DIR/nix-hash-refresh-version-change"
-    local hash_a="sha256-VVQNu/E7Wuyxfsy93Gorknr0t7H7wy9kxMOiBZYOo/o="
-
-    run_update_nix_hash_fixture "$(basename "$fixture")" 1 "$hash_a"
-
-    assert_contains "$fixture/output.log" "Nix builds succeeded after refreshing the upstream pins and Codex.dmg hash."
-    assert_contains "$fixture/calls.log" "nix-store --add-fixed"
-    assert_contains "$fixture/calls.log" "nix build"
-}
-
-test_update_nix_hashes_verifies_changed_dmg_hash() {
-    info "Checking Nix hash refresh still verifies changed DMG hashes"
-    local fixture="$TMP_DIR/nix-hash-refresh-dmg-hash-change"
-    local hash_b="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-
-    run_update_nix_hash_fixture "$(basename "$fixture")" 0 "$hash_b"
-
-    assert_contains "$fixture/output.log" "Nix builds succeeded after refreshing the upstream pins and Codex.dmg hash."
-    assert_contains "$fixture/calls.log" "nix-store --add-fixed"
-    assert_contains "$fixture/calls.log" "nix build"
-}
-
 test_installer_detects_electron_version_from_plist() {
     info "Checking Electron version detection from app metadata"
     local workspace="$TMP_DIR/electron-version"
@@ -4654,9 +4476,6 @@ EOF
     assert_contains "$REPO_DIR/scripts/lib/node-runtime.sh" "MANAGED_NODE_VERSION"
     assert_contains "$REPO_DIR/scripts/lib/package-common.sh" "node-runtime"
     assert_contains "$REPO_DIR/tests/fixtures/create-packaged-app-fixture.sh" "resources/node-runtime/bin"
-    assert_contains "$REPO_DIR/.github/workflows/ci.yml" "tests/fixtures/create-packaged-app-fixture.sh codex-app"
-    assert_contains "$REPO_DIR/.github/workflows/ci.yml" "bash scripts/ci/run-node-checks.sh"
-    assert_contains "$REPO_DIR/scripts/ci/container-entrypoint.sh" "bash scripts/ci/run-node-checks.sh"
     assert_contains "$REPO_DIR/scripts/ci/run-node-checks.sh" "git ls-files '\\*.js'"
     assert_contains "$REPO_DIR/scripts/ci/run-node-checks.sh" "git ls-files '\\*.test.js' 'linux-features/\\*/test.js'"
     assert_contains "$REPO_DIR/flake.nix" "rewriteCratesIoDownloadUrl"
@@ -7691,9 +7510,6 @@ main() {
     test_setup_native_wizard_blank_interactive_cleanup_ids_skip_cleanup
     test_setup_native_wizard_dry_run_cleanup_does_not_delete_confirmed_paths
     test_setup_native_wizard_cleanup_deletes_only_confirmed_paths
-    test_update_nix_hashes_skips_unchanged_package_verification
-    test_update_nix_hashes_verifies_changed_pins
-    test_update_nix_hashes_verifies_changed_dmg_hash
     test_installer_detects_electron_version_from_plist
     test_installer_keeps_electron_fallback_for_bad_metadata
     test_port_validation_rejects_oversized_numeric_values
