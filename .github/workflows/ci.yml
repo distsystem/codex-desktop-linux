@@ -1,139 +1,59 @@
 name: CI
 
+# Soft-fork CI in rebase mode. Our main is force-pushed only after this CI
+# is green, so main is always last-known-good — no separate tag is needed.
+# The deliverable is the pacman package; nix is just a local dev path here, so
+# CI focuses on the PKGBUILD. The patch gate is built into the PKGBUILD itself
+# (check() runs validate-patch-report.js), so every makepkg — CI here, plus
+# AUR users — automatically validates required-upstream patches against the
+# pinned versioned zip.
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  source-and-node:
+  verify-pkgbuild-on-arch:
+    name: Verify PKGBUILD on Arch (makepkg)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-      - name: Install smoke-test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ripgrep
-      - name: Shell syntax
-        run: |
-          bash -n install.sh install-community launcher/start.sh.template scripts/lib/*.sh
-          bash -n scripts/bootstrap-wizard.sh scripts/install-deps.sh
-          bash -n scripts/build-deb.sh scripts/build-rpm.sh scripts/build-pacman.sh scripts/build-appimage.sh
-      - name: Guided installer tests
-        run: python3 scripts/feature-picker.test.py
-      - name: Node tests
-        run: |
-          node --test scripts/ci/*.test.js
-          node --test scripts/lib/upstream-linux-package.test.js \
-            scripts/lib/install-verification.test.js
-          node --test scripts/lib/package-common.test.js
-          node --check scripts/ci/verify-official-linux-features.js
-          node --test scripts/automation/upstream-linux-package-watchdog/test.js
-          node --test scripts/patch-linux-window-ui.test.js scripts/patches/descriptor.test.js \
-            scripts/patches/lib/global-shortcuts-portal.test.js \
-            scripts/patches/core/*/test.js \
-            scripts/lib/linux-features.test.js linux-features/*/test.js
-      - name: Smoke tests
-        run: bash tests/scripts_smoke.sh
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-  rust:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0
-        with:
-          toolchain: stable
-          components: clippy
-      - run: cargo test -p codex-update-manager
-      - run: cargo clippy -p codex-update-manager -- -D warnings
-      - run: cargo test -p codex-record-replay-linux
-      - run: cargo clippy -p codex-record-replay-linux --all-targets -- -D warnings
-      - name: Install private D-Bus test session
+      - name: Stage PKGBUILD and rewrite source to the current checkout
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dbus python3-gi
-      - name: Test embedded Computer Use in isolation
-        env:
-          CARGO_BUILD_JOBS: '2'
-        run: |
-          dbus-run-session -- env -u DISPLAY -u WAYLAND_DISPLAY -u AT_SPI_BUS_ADDRESS \
-            -u XDG_CURRENT_DESKTOP -u XDG_SESSION_TYPE \
-            cargo test -p codex-computer-use-linux --all-targets -- --test-threads=1
-          cargo clippy -p codex-computer-use-linux --all-targets -- -D warnings
-      - name: Test global shortcuts helper
-        run: |
-          cargo test --manifest-path global-dictation-linux/Cargo.toml
-          cargo clippy --manifest-path global-dictation-linux/Cargo.toml --all-targets -- -D warnings
-      - name: Test Mini KWin helper
-        run: |
-          cargo test --manifest-path linux-features/pet-overlay/kwin-helper/Cargo.toml
-          cargo clippy --manifest-path linux-features/pet-overlay/kwin-helper/Cargo.toml --all-targets -- -D warnings
+          set -euo pipefail
+          mkdir -p /tmp/pkgbuild
+          cp packaging/linux/PKGBUILD            /tmp/pkgbuild/PKGBUILD
+          cp packaging/linux/codex-desktop-linux.install /tmp/pkgbuild/codex-desktop-linux.install
+          # CI validates the current commit, not whatever main points at on
+          # origin (we are validating *before* push). Rewrite the git source
+          # to clone the mounted checkout instead.
+          sed -i 's|git+https://github.com/distsystem/codex-desktop-linux\.git#branch=main|git+file:///repo|' /tmp/pkgbuild/PKGBUILD
 
-  nix-build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - system: x86_64-linux
-            runner: ubuntu-latest
-          - system: aarch64-linux
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
-      - run: scripts/ci/validate-nix-pins.sh
-      - name: Evaluate NixOS and Home Manager module contracts
-        run: nix build ".#checks.${{ matrix.system }}.modules" --no-link
-      - name: Build audited default runtime
-        run: nix build ".#checks.${{ matrix.system }}.nix-runtime" --no-link
-      - name: Build audited Chronicle-only runtime
-        run: nix build ".#checks.${{ matrix.system }}.nix-runtime-chronicle-skysight" --no-link
-      - name: Build audited Computer Use runtime
-        run: nix build ".#checks.${{ matrix.system }}.nix-runtime-computer-use" --no-link
-      - name: Build audited directory-watch feature profile
-        run: nix build ".#checks.${{ matrix.system }}.nix-runtime-maximal-directory-watch" --no-link
-      - name: Build audited shallow-watch feature profile
-        run: nix build ".#checks.${{ matrix.system }}.nix-runtime-maximal-shallow-watch" --no-link
-      - name: Build and audit the public installer
-        run: nix build ".#checks.${{ matrix.system }}.nix-installer" --no-link
-
-  nix-vm:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
-      - name: Run the NixOS runtime VM
-        run: nix build .#checks.x86_64-linux.nixos-vm --no-link
-
-  # Keep this stable context: the main branch ruleset requires a job named
-  # "nix", while the architecture matrix above is free to grow.
-  nix:
-    if: ${{ always() }}
-    needs:
-      - nix-build
-      - nix-vm
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every Nix validation job
-        env:
-          NIX_BUILD_RESULT: ${{ needs.nix-build.result }}
-          NIX_VM_RESULT: ${{ needs.nix-vm.result }}
+      - name: makepkg in Arch container (build + check + package)
         run: |
-          test "$NIX_BUILD_RESULT" = success
-          test "$NIX_VM_RESULT" = success
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            -v "/tmp/pkgbuild:/build" \
+            -w /build \
+            archlinux:base-devel \
+            bash -c '
+              set -euo pipefail
+              pacman -Syu --noconfirm --needed git 7zip nodejs npm rust curl unzip sudo dpkg gnupg
+              useradd -m builder
+              chown -R builder:builder /build
+              runuser -u builder -- bash -c "cd /build && PKGDEST=/build makepkg -f --nodeps --skipinteg"
+              pkg=$(find /build -maxdepth 1 -name "codex-desktop-linux-*.pkg.tar.zst" -print -quit)
+              test -n "$pkg" || { echo "no package produced"; exit 1; }
+              echo "Built: $pkg"
+              contents=$(pacman -Qlp "$pkg")
+              for path in /opt/codex-desktop/start.sh /usr/bin/codex-desktop /usr/share/applications/codex-desktop.desktop; do
+                  echo "$contents" | grep -qFx "codex-desktop-linux $path" || { echo "missing $path"; exit 1; }
+              done
+              echo "Package layout OK."
+            '

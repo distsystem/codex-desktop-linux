@@ -200,10 +200,3 @@ jobs:
             fi
           }
           dispatch_if_missing ci.yml
-          dispatch_if_missing upstream-build-app.yml \
-            -f "release_id=$RELEASE_ID" \
-            -f "version=$EXPECTED_VERSION" \
-            -f "amd64_repository_path=$EXPECTED_AMD64_PATH" \
-            -f "amd64_sha256=$EXPECTED_AMD64_SHA256" \
-            -f "arm64_repository_path=$EXPECTED_ARM64_PATH" \
-            -f "arm64_sha256=$EXPECTED_ARM64_SHA256"

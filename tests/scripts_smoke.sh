@@ -13,8 +13,6 @@ assert_absent() { ! rg -q -- "$2" "$1" || fail "$1 unexpectedly contains $2"; }
 assert_executable install.sh
 assert_executable scripts/rebuild-candidate.sh
 assert_executable scripts/select-latest-package.sh
-assert_executable scripts/ci/update-nix-hashes.sh
-assert_executable scripts/ci/validate-nix-pins.sh
 assert_file assets/openai-codex-linux-repository-key.gpg.base64
 assert_file nix/upstream-linux-packages.json
 
