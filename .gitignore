@@ -15,7 +15,7 @@ reports/upstream-dmg/
 linux-features/features.json
 linux-features/local/
 .idea/
-.claude/
+.claude/settings.local.json
 .codex/
 
 # graphify

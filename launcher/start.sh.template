@@ -14,7 +14,7 @@ resolve_script_dir() {
     cd -P "$(dirname "$source")" && pwd
 }
 
-SCRIPT_DIR="$(resolve_script_dir)"
+SCRIPT_DIR="${SCRIPT_DIR:-$(resolve_script_dir)}"
 if [ -z "${CODEX_HOME:-}" ]; then
     if [ -n "${HOME:-}" ]; then
         CODEX_HOME="$HOME/.codex"
@@ -30,7 +30,7 @@ APP_SETTINGS_FILE="$APP_CONFIG_DIR/settings.json"
 USER_ELECTRON_FLAGS_FILE="$APP_CONFIG_DIR/electron-flags.conf"
 CODEX_LINUX_SETTINGS_FILE="$APP_SETTINGS_FILE"
 CODEX_LINUX_FEATURES_DIR="$SCRIPT_DIR/.codex-linux/features"
-export CODEX_HOME CODEX_LINUX_APP_ID CODEX_LINUX_APP_DISPLAY_NAME CODEX_LINUX_WEBVIEW_PORT CODEX_LINUX_SETTINGS_FILE CODEX_LINUX_FEATURES_DIR
+export CODEX_HOME CODEX_LINUX_APP_ID CODEX_LINUX_APP_DISPLAY_NAME CODEX_LINUX_WEBVIEW_PORT CODEX_LINUX_SETTINGS_FILE CODEX_LINUX_FEATURES_DIR CODEX_LINUX_DEV_RELOAD
 APP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/$CODEX_LINUX_APP_ID"
 APP_PID_FILE="$APP_STATE_DIR/app.pid"
 WEBVIEW_PID_FILE="$APP_STATE_DIR/webview.pid"
@@ -3373,6 +3373,14 @@ build_electron_launch_args() {
         ELECTRON_LAUNCH_ARGS+=("$enable_features_arg")
     fi
 
+    # Expose Chromium CDP endpoint for external debuggers (chrome-devtools MCP,
+    # `chrome://inspect`, raw CDP clients). The renderer/worker targets are
+    # accessible without unlocking the in-app DevTools menu, since the switch
+    # is consumed by Chromium content layer before Electron's allowDevtools
+    # gating runs. Port defaults to 9222; override for parallel sessions.
+    if [ "${CODEX_LINUX_DEV_TOOLS:-0}" = "1" ]; then
+        ELECTRON_LAUNCH_ARGS+=(--remote-debugging-port="${CODEX_LINUX_DEV_TOOLS_PORT:-9222}")
+    fi
 }
 
 print_scaling_diagnostics() {
