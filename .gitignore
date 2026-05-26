@@ -12,5 +12,5 @@ dist/
 dist-next/
 linux-features/features.json
 .idea/
-.claude/
+.claude/settings.local.json
 .codex/
