@@ -264,6 +264,115 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
   return patchedSource;
 }
 
+// Mirror mascot + tray horizontally within the overlay window so the mascot
+// always renders on the right edge regardless of which placement codex's
+// solver picks. The mirror happens at the source of truth (the layout return
+// in `aU`), so renderer visuals AND hit-region tracking stay in sync — both
+// read `layout.mascot.left` / `layout.tray.left`.
+function applyMascotRightAlignPatch(currentSource) {
+  const sentinel = "/*mascot-right-align*/";
+  if (currentSource.includes(sentinel)) {
+    return currentSource;
+  }
+  // Match the layout return regardless of minified identifier rotation
+  // (`hU` in one bundle → `DG` in the next). The bounds helper name is a
+  // capture group, used in the rewrite so we keep calling whatever upstream
+  // is calling.
+  const layoutReturnRegex =
+    /return\{anchor:([A-Za-z_$][\w$]*),mascot:([A-Za-z_$][\w$]*)\(\1,([A-Za-z_$][\w$]*)\),placement:([A-Za-z_$][\w$]*),tray:([A-Za-z_$][\w$]*)==null\?null:\2\(\5,\3\),viewport:([A-Za-z_$][\w$]*),windowBounds:\3\}/;
+  const match = currentSource.match(layoutReturnRegex);
+  if (match == null) {
+    if (
+      /return\{anchor:[A-Za-z_$][\w$]*,mascot:/.test(currentSource) &&
+      currentSource.includes("avatar-overlay")
+    ) {
+      console.warn(
+        "WARN: Could not find avatar overlay layout return — skipping mascot right-align patch",
+      );
+    }
+    return currentSource;
+  }
+  const [, anchorVar, boundsFn, windowVar, placementVar, trayVar, viewportVar] = match;
+  const replacement =
+    `return ${sentinel}(()=>{` +
+    `let __cdl_m=${boundsFn}(${anchorVar},${windowVar}),` +
+    `__cdl_t=${trayVar}==null?null:${boundsFn}(${trayVar},${windowVar}),` +
+    `__cdl_mir=e=>({...e,left:Math.max(0,${windowVar}.width-e.left-e.width)});` +
+    `return{anchor:${anchorVar},mascot:__cdl_mir(__cdl_m),placement:${placementVar},tray:__cdl_t==null?null:__cdl_mir(__cdl_t),viewport:${viewportVar},windowBounds:${windowVar}}` +
+    `})()`;
+  return currentSource.replace(layoutReturnRegex, replacement);
+}
+
+// Make the overlay BrowserWindow track the actual mascot+tray content
+// instead of the upstream constant `viewport` (356×320). Upstream sizes the
+// window to `viewport.width/height` and only uses `contentBounds` for
+// positioning, which means the window keeps a 356×320 transparent footprint
+// even when the tray is empty. We swap that so width/height follow
+// contentBounds; the renderer continues to read layout.mascot.left/top to
+// place the mascot relative to the (now-tighter) window.
+function applyAvatarOverlayContentSizedWindowPatch(currentSource) {
+  const sentinel = "/*overlay-content-sized*/";
+  if (currentSource.includes(sentinel)) {
+    return currentSource;
+  }
+  const fUReturnRegex =
+    /function ([A-Za-z_$][\w$]*)\(\{contentBounds:([A-Za-z_$][\w$]*),displayBounds:([A-Za-z_$][\w$]*),viewport:([A-Za-z_$][\w$]*)\}\)\{return\{x:([A-Za-z_$][\w$]*)\(\2\.x\+\2\.width-\4\.width,\3\.x,\3\.x\+\3\.width-\4\.width\),y:\5\(\2\.y\+\2\.height-\4\.height,\3\.y,\3\.y\+\3\.height-\4\.height\),width:\4\.width,height:\4\.height\}/;
+  const match = currentSource.match(fUReturnRegex);
+  if (match == null) {
+    if (currentSource.includes("avatar-overlay")) {
+      console.warn(
+        "WARN: Could not find avatar overlay window-bounds helper — skipping content-sized window patch",
+      );
+    }
+    return currentSource;
+  }
+  const [, fnName, contentVar, displayVar, viewportVar, clampFn] = match;
+  // Width/height now follow contentBounds. x/y still clamp the window to the
+  // display so the overlay can't slide off-screen, but the upper clamp uses
+  // contentBounds.width/height (the new window size) instead of viewport.
+  const replacement =
+    `function ${fnName}({contentBounds:${contentVar},displayBounds:${displayVar},viewport:${viewportVar}})` +
+    `{${sentinel}return{` +
+    `x:${clampFn}(${contentVar}.x,${displayVar}.x,${displayVar}.x+${displayVar}.width-${contentVar}.width),` +
+    `y:${clampFn}(${contentVar}.y,${displayVar}.y,${displayVar}.y+${displayVar}.height-${contentVar}.height),` +
+    `width:${contentVar}.width,height:${contentVar}.height}`;
+  return currentSource.replace(fUReturnRegex, replacement);
+}
+
+// Floor the measured tray width at the upstream design width (276 px) so the
+// content-sized window patch above doesn't get trapped in a bootstrap loop:
+// when no notifications are present, the window shrinks to mascot width
+// (~112), which would clip the tray DOM next frame and lock the window in
+// the narrow state forever. Floor at 276 → main grows the window to 276+;
+// next render the tray has room to lay out naturally and stays stable.
+function applyAvatarOverlayTrayMinWidthPatch(currentSource) {
+  const sentinel = "/*tray-min-width*/";
+  if (currentSource.includes(sentinel)) {
+    return currentSource;
+  }
+  const measureRegex =
+    /let ([A-Za-z_$][\w$]*)=Math\.ceil\(([A-Za-z_$][\w$]*)\.offsetWidth>0\?\2\.offsetWidth:([A-Za-z_$][\w$]*)\.width\)/;
+  const match = currentSource.match(measureRegex);
+  if (match == null) {
+    if (
+      currentSource.includes("notification-tray") &&
+      currentSource.includes("offsetWidth")
+    ) {
+      console.warn(
+        "WARN: Could not find avatar overlay tray width measurement — skipping tray min-width patch",
+      );
+    }
+    return currentSource;
+  }
+  const [, widthVar, elemVar, rectVar] = match;
+  const replacement =
+    `let ${widthVar}=${sentinel}Math.max(276,Math.ceil(${elemVar}.offsetWidth>0?${elemVar}.offsetWidth:${rectVar}.width))`;
+  return currentSource.replace(measureRegex, replacement);
+}
+
 module.exports = {
   applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyMascotRightAlignPatch,
+  applyAvatarOverlayContentSizedWindowPatch,
+  applyAvatarOverlayTrayMinWidthPatch,
 };

@@ -77,7 +77,9 @@ const {
   applyLinuxWindowOptionsPatch,
 } = require("./patches/main-process.js");
 const {
+  applyAvatarOverlayContentSizedWindowPatch,
   applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyMascotRightAlignPatch,
 } = require("./patches/avatar-overlay.js");
 const {
   patchPackageJson,
@@ -190,6 +192,7 @@ module.exports = {
   applyLinuxTrayPatch,
   applyLinuxWillQuitDrainTimeoutPatch,
   applyLinuxWindowOptionsPatch,
+  applyMascotRightAlignPatch,
   applySubagentNicknameMetadataPatch,
   createPatchReport,
   corePatchDescriptors,

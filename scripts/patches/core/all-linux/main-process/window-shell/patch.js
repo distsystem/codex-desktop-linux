@@ -12,7 +12,11 @@ const {
   applyLinuxSingleInstancePatch,
   applyLinuxGitOriginsSourceFallbackPatch,
 } = require("../../../../main-process.js");
-const { applyLinuxAvatarOverlayMousePassthroughPatch } = require("../../../../avatar-overlay.js");
+const {
+  applyAvatarOverlayContentSizedWindowPatch,
+  applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyMascotRightAlignPatch,
+} = require("../../../../avatar-overlay.js");
 
 module.exports = [
   {
@@ -56,6 +60,20 @@ module.exports = [
     order: 90,
     ciPolicy: "optional",
     apply: applyLinuxAvatarOverlayMousePassthroughPatch,
+  },
+  {
+    id: "mascot-right-align",
+    phase: "main-bundle",
+    order: 93,
+    ciPolicy: "optional",
+    apply: applyMascotRightAlignPatch,
+  },
+  {
+    id: "avatar-overlay-content-sized-window",
+    phase: "main-bundle",
+    order: 94,
+    ciPolicy: "optional",
+    apply: applyAvatarOverlayContentSizedWindowPatch,
   },
   {
     id: "linux-file-manager",

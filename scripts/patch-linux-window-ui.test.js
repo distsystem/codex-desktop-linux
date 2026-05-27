@@ -19,6 +19,7 @@ const {
   applyLinuxComputerUsePluginGatePatch,
   applyLinuxComputerUseRendererAvailabilityPatch,
   applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyMascotRightAlignPatch,
   applyBrowserUseNodeReplApprovalPatch,
   applyLinuxBrowserUseIabVisibleOnCreatePatch,
   applyLinuxChromeExtensionStatusPatch,
@@ -492,6 +493,9 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-set-icon",
     "linux-opaque-background",
     "linux-avatar-overlay-mouse-passthrough",
+    "mascot-right-align",
+    "avatar-overlay-content-sized-window",
+    "avatar-overlay-tray-min-width",
     "linux-file-manager",
     "linux-tray",
     "linux-build-info-tray",
@@ -1190,6 +1194,72 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /e\.moveTop\(\),e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.doesNotMatch(patched, /codexLinuxRecoverAvatarPointerInteractivity/);
   assert.match(patched, /this\.window===t&&\(this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
+});
+
+test("mirrors mascot and tray horizontally to anchor mascot on the overlay right edge", () => {
+  const layoutSource =
+    "function hU(e,t){return{left:Math.round(e.x-t.x),top:Math.round(e.y-t.y),width:Math.round(e.width),height:Math.round(e.height)}}" +
+    "function aU({anchor:e,displayBounds:t,mascotSize:n,previousPlacement:r,traySize:i,viewportSize:a=tU}){" +
+    "let o={width:Math.min(a.width,t.width),height:Math.min(a.height,t.height)}," +
+    "s=dU({...e,width:Math.min(n.width,t.width),height:Math.min(n.height,t.height)},t)," +
+    "c=i==null?null:{width:i.width,height:i.height}," +
+    "l=oU(s,t)," +
+    "u=c==null?r:sU({anchor:s,displayBounds:t,preferredPlacement:l,previousPlacement:r,traySize:c})," +
+    "d=c==null?null:lU(cU(s,c,u),t)," +
+    "f=fU({contentBounds:mU([uU(s),...d==null?[]:[d]]),displayBounds:t,viewport:o});" +
+    "return{anchor:s,mascot:hU(s,f),placement:u,tray:d==null?null:hU(d,f),viewport:o,windowBounds:f}}" +
+    "// avatar-overlay\n";
+
+  const patched = applyPatchTwice(applyMascotRightAlignPatch, layoutSource);
+
+  assert.match(patched, /\/\*mascot-right-align\*\//);
+  assert.match(patched, /__cdl_mir=e=>\(\{\.\.\.e,left:Math\.max\(0,f\.width-e\.left-e\.width\)\}\)/);
+  assert.match(patched, /mascot:__cdl_mir\(__cdl_m\)/);
+  assert.match(patched, /tray:__cdl_t==null\?null:__cdl_mir\(__cdl_t\)/);
+
+  // Evaluate the patched function and verify the mirror geometry: mascot snaps
+  // flush-right with the window, and tray sits at the mirrored offset.
+  const sandbox = {
+    hU: (e, t) => ({
+      left: Math.round(e.x - t.x),
+      top: Math.round(e.y - t.y),
+      width: Math.round(e.width),
+      height: Math.round(e.height),
+    }),
+    dU: (e) => e,
+    cU: (e, c) => ({ x: e.x + e.width, y: e.y, width: c.width, height: c.height }),
+    lU: (e) => e,
+    fU: () => ({ x: 0, y: 0, width: 356, height: 320 }),
+    oU: () => "top-end",
+    sU: () => "top-start",
+    mU: () => null,
+    uU: () => null,
+    tU: { width: 356, height: 320 },
+  };
+  const script = new vm.Script(
+    `${patched} globalThis.__result = aU({anchor:{x:0,y:0,width:112,height:121},displayBounds:{x:0,y:0,width:1920,height:1080},mascotSize:{width:112,height:121},previousPlacement:'top-start',traySize:{width:276,height:131}});`,
+  );
+  const context = vm.createContext({ ...sandbox, Math, globalThis: {} });
+  script.runInContext(context);
+  const result = context.globalThis.__result;
+  assert.equal(result.mascot.left, result.windowBounds.width - result.mascot.width);
+  // Pre-mirror tray was at left=112 (mascot.x + mascot.width), so mirror lands
+  // at max(0, 356-112-276) = 0.
+  assert.equal(result.tray.left, 0);
+  assert.equal(result.tray.width, 276);
+});
+
+test("warns and leaves source alone if the layout return shape drifts", () => {
+  // anchor+mascot signature present (so the drift detector knows this IS the
+  // avatar overlay layout) but the full layout-return shape no longer matches
+  // — e.g. upstream inserts an extra field between placement and tray.
+  const drifted =
+    "// avatar-overlay\nreturn{anchor:s,mascot:WW(s,f),placement:u,extra:1,tray:d==null?null:WW(d,f),viewport:o,windowBounds:f};";
+  const { warnings, value } = captureWarns(() => applyMascotRightAlignPatch(drifted));
+  assert.equal(value, drifted);
+  assert.deepEqual(warnings, [
+    "WARN: Could not find avatar overlay layout return — skipping mascot right-align patch",
+  ]);
 });
 
 test("keeps avatar overlay layout sync working after layout alias drift", () => {
