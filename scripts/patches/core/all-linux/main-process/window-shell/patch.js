@@ -26,7 +26,11 @@ const {
   applyLinuxTrayPatch,
   applyLinuxSingleInstancePatch,
 } = require("../../../../impl/main-process/tray.js");
-const { applyLinuxAvatarOverlayMousePassthroughPatch } = require("../../../../impl/avatar-overlay.js");
+const {
+  applyAvatarOverlayContentSizedWindowPatch,
+  applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyMascotRightAlignPatch,
+} = require("../../../../impl/avatar-overlay.js");
 
 module.exports = [
   mainBundlePatch({
@@ -98,6 +102,20 @@ module.exports = [
     order: 90,
     ciPolicy: "required-upstream",
     apply: applyLinuxAvatarOverlayMousePassthroughPatch,
+  }),
+  mainBundlePatch({
+    id: "mascot-right-align",
+    phase: "main-bundle",
+    order: 93,
+    ciPolicy: "optional",
+    apply: applyMascotRightAlignPatch,
+  }),
+  mainBundlePatch({
+    id: "avatar-overlay-content-sized-window",
+    phase: "main-bundle",
+    order: 94,
+    ciPolicy: "optional",
+    apply: applyAvatarOverlayContentSizedWindowPatch,
   }),
   mainBundlePatch({
     id: "linux-file-manager",
