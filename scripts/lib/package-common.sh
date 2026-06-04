@@ -125,14 +125,14 @@ render_desktop_entry() {
             /^\[/ { skip = 0 }
             skip { next }
             /^Actions=/ {
-                print "Actions=new-window;"
+                print "Actions=new-window;new-isolated-instance;"
                 actions_rewritten = 1
                 next
             }
             { print }
             END {
                 if (actions_rewritten == 0) {
-                    print "Actions=new-window;"
+                    print "Actions=new-window;new-isolated-instance;"
                 }
             }
         ' "$rendered_target" > "$target"
