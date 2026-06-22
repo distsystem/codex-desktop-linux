@@ -20,6 +20,25 @@ export SCRIPT_DIR
     exit 1
 }
 
+# Pin assertion: refuse to launch if codex-app/ is built against a different
+# Codex version than the repo SoT. Without this dev silently drifts onto
+# whatever rolling Codex.dmg was current when install.sh last ran.
+pinned=$(<"$REPO_ROOT/CODEX_VERSION")
+pinned=${pinned%$'\n'}
+build_info="$SCRIPT_DIR/.codex-linux/build-info.json"
+installed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("upstreamDmg",{}).get("appVersion",""))' "$build_info" 2>/dev/null || true)
+if [ -z "$installed" ]; then
+    echo "error: $build_info missing/unreadable; rerun ./install.sh" >&2
+    exit 1
+fi
+if [ "$installed" != "$pinned" ]; then
+    cat >&2 <<EOF
+error: codex-app/ built against $installed but CODEX_VERSION pins $pinned.
+       rerun: rm -f Codex.dmg Codex-*.zip && ./install.sh
+EOF
+    exit 1
+fi
+
 # Identity defaults (install.sh would bake these); override for side-by-side.
 export CODEX_LINUX_APP_ID="${CODEX_LINUX_APP_ID:-codex-desktop}"
 export CODEX_LINUX_APP_DISPLAY_NAME="${CODEX_LINUX_APP_DISPLAY_NAME:-Codex Desktop}"

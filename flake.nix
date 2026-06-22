@@ -79,7 +79,7 @@
           cp ${./scripts/lib/native-modules.sh} "$out/scripts/lib/native-modules.sh"
         '';
 
-        codexVersion = "26.616.51431";
+        codexVersion = pkgs.lib.removeSuffix "\n" (builtins.readFile ./CODEX_VERSION);
 
         # Pin the macOS payload to the appcast-versioned arm64 zip instead of the
         # rolling Codex.dmg: a fixed version stops the build from drifting onto an

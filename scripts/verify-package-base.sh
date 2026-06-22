@@ -12,8 +12,9 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-version="$(grep -m1 'codexVersion = ' flake.nix | sed 's/.*"\(.*\)".*/\1/')"
-[ -n "$version" ] || { echo "could not read codexVersion from flake.nix" >&2; exit 1; }
+version="$(<CODEX_VERSION)"
+version="${version%$'\n'}"
+[ -n "$version" ] || { echo "could not read CODEX_VERSION" >&2; exit 1; }
 
 cache="/tmp/codex-package-verify"
 report_dir="$cache/report-${version}"
@@ -23,13 +24,13 @@ mkdir -p "$cache"
 # otherwise download it (resumable + hash-checked against flake.nix's pin, so a
 # network-truncated file is never reused as if complete).
 expected_hash="$(grep -A2 'codexDmg = pkgs.fetchurl' flake.nix | grep -oE 'sha256-[A-Za-z0-9+/=]+')"
-zip="$(find /nix/store -maxdepth 1 -name "*-Codex-darwin-arm64-${version}.zip" 2>/dev/null | head -1)"
+zip="$(find /nix/store -maxdepth 1 -name "*-ChatGPT-darwin-arm64-${version}.zip" 2>/dev/null | head -1)"
 if [ -z "$zip" ]; then
     zip="$cache/Codex-darwin-arm64-${version}.zip"
     if [ "$(nix hash file --sri --type sha256 "$zip" 2>/dev/null || true)" != "$expected_hash" ]; then
         echo "[verify] downloading versioned zip ${version} (resumable)"
         curl -fL --retry 5 --retry-all-errors --retry-delay 3 -C - -o "$zip" \
-            "https://persistent.oaistatic.com/codex-app-prod/Codex-darwin-arm64-${version}.zip"
+            "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-arm64-${version}.zip"
         if [ "$(nix hash file --sri --type sha256 "$zip" 2>/dev/null || true)" != "$expected_hash" ]; then
             echo "[verify] downloaded zip incomplete/corrupt (hash mismatch); removed" >&2
             rm -f "$zip"; exit 1

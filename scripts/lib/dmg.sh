@@ -167,10 +167,30 @@ write_cached_dmg_metadata() {
     fi
 }
 
+# ---- Download or find Codex payload ----
+# Prefers the appcast-versioned arm64 zip pinned by repo-root CODEX_VERSION
+# (the same source of truth flake.nix and packaging/linux/PKGBUILD use). Falls
+# back to the rolling Codex.dmg only when CODEX_VERSION is missing — that
+# fallback is unpinned and will drift onto whatever the latest upstream
+# release is at download time.
 get_dmg() {
-    local dmg_dest="$CACHED_DMG_PATH"
+    local version_file="$SCRIPT_DIR/CODEX_VERSION"
+    local dmg_dest dmg_url
     local metadata_path="$CACHED_DMG_METADATA_PATH"
     local download_fingerprint=""
+
+    if [ -f "$version_file" ]; then
+        local pinned
+        pinned=$(<"$version_file")
+        pinned=${pinned%$'\n'}
+        dmg_dest="$SCRIPT_DIR/Codex-${pinned}.zip"
+        dmg_url="https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-arm64-${pinned}.zip"
+        info "Pinned Codex version: $pinned"
+    else
+        dmg_dest="$CACHED_DMG_PATH"
+        dmg_url="$DMG_URL"
+        warn "CODEX_VERSION not found; falling back to rolling Codex.dmg (unpinned)"
+    fi
     local tmp_dest="$dmg_dest.part"
 
     if dmg_refresh_mode_is_pinned; then
@@ -183,34 +203,34 @@ get_dmg() {
         error "CODEX_DMG_REFRESH_MODE=pinned requires an existing cached DMG at $dmg_dest or an explicit DMG path"
     fi
 
-    validate_dmg_url "$DMG_URL"
+    validate_dmg_url "$dmg_url"
 
-    # Reuse existing DMG only when it still matches upstream metadata.
+    # Reuse existing payload only when it still matches upstream metadata.
     if [ -s "$dmg_dest" ]; then
         DMG_REMOTE_FINGERPRINT=""
-        if cached_dmg_is_fresh "$dmg_dest" "$metadata_path" "$DMG_URL"; then
-            info "Using cached DMG: $dmg_dest ($(du -h "$dmg_dest" | cut -f1))"
+        if cached_dmg_is_fresh "$dmg_dest" "$metadata_path" "$dmg_url"; then
+            info "Using cached payload: $dmg_dest ($(du -h "$dmg_dest" | cut -f1))"
             echo "$dmg_dest"
             return
         fi
 
         download_fingerprint="$DMG_REMOTE_FINGERPRINT"
-        info "Refreshing stale cached DMG: $dmg_dest"
+        info "Refreshing stale cached payload: $dmg_dest"
     fi
 
     if [ -z "$download_fingerprint" ]; then
-        if ! download_fingerprint="$(fetch_dmg_remote_fingerprint "$DMG_URL")"; then
+        if ! download_fingerprint="$(fetch_dmg_remote_fingerprint "$dmg_url")"; then
             warn "Could not record upstream DMG metadata"
             download_fingerprint=""
         fi
     fi
 
-    info "Downloading Codex Desktop DMG..."
-    info "URL: $(redact_dmg_url "$DMG_URL")"
+    info "Downloading Codex Desktop payload..."
+    info "URL: $(redact_dmg_url "$dmg_url")"
 
     rm -f "$tmp_dest"
     if ! curl -L --progress-bar --max-time 600 --connect-timeout 30 \
-            -o "$tmp_dest" -- "$DMG_URL"; then
+            -o "$tmp_dest" -- "$dmg_url"; then
         rm -f "$tmp_dest"
         error "Download failed. Download manually and place as: $dmg_dest"
     fi

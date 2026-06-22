@@ -1524,7 +1524,7 @@ SCRIPT
     assert_contains "$no_metadata/Codex.dmg.metadata" "etag=fresh-etag"
     assert_contains "$no_metadata/Codex.dmg.metadata" "url_sha256=$url_sha256"
     assert_contains "$no_metadata/output.log" "Cached DMG has no upstream metadata"
-    assert_contains "$no_metadata/output.log" "Refreshing stale cached DMG"
+    assert_contains "$no_metadata/output.log" "Refreshing stale cached payload"
 
     local matching="$workspace/matching"
     mkdir -p "$matching"
@@ -1542,7 +1542,7 @@ EOF
         TEST_DOWNLOAD_CONTENT=downloaded
     [ "$(cat "$matching/Codex.dmg")" = "old" ] || fail "Expected matching metadata to reuse cache"
     assert_not_contains "$matching/curl.log" "GET"
-    assert_contains "$matching/output.log" "Using cached DMG"
+    assert_contains "$matching/output.log" "Using cached payload"
 
     local differing="$workspace/differing"
     mkdir -p "$differing"
@@ -1959,7 +1959,7 @@ SCRIPT
     [ "$(cat "$source_dir/Codex.dmg")" = "cached" ] || fail "Expected matching metadata to keep cached DMG"
     assert_contains "$source_dir/curl.log" "HEAD"
     assert_not_contains "$source_dir/curl.log" "GET"
-    assert_contains "$output_log" "Using cached DMG"
+    assert_contains "$output_log" "Using cached payload"
 }
 
 test_rebuild_candidate_uses_validated_default_dmg() {

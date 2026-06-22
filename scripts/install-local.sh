@@ -40,7 +40,7 @@ sed -i "s|git+https://github.com/distsystem/codex-desktop-linux\.git#branch=main
 
 # Reuse the pinned zip from nix store if present (sha matches PKGBUILD's pin);
 # otherwise makepkg downloads it. Saves 330MB on the dev loop.
-zip_in_store=$(find /nix/store -maxdepth 1 -name "*-Codex-darwin-arm64-${appver}.zip" 2>/dev/null | head -1)
+zip_in_store=$(find /nix/store -maxdepth 1 -name "*-ChatGPT-darwin-arm64-${appver}.zip" 2>/dev/null | head -1)
 if [ -n "$zip_in_store" ]; then
     cp "$zip_in_store" "$tmp/Codex-${appver}.zip"
     echo "[install-local] reusing nix store zip: $zip_in_store"
