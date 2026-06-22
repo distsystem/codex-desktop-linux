@@ -79,12 +79,17 @@
           cp ${./scripts/lib/native-modules.sh} "$out/scripts/lib/native-modules.sh"
         '';
 
+        codexVersion = "26.616.51431";
+
+        # Pin the macOS payload to the appcast-versioned arm64 zip instead of the
+        # rolling Codex.dmg: a fixed version stops the build from drifting onto an
+        # upstream release the patches do not yet target. Only the JS asar + webview
+        # are consumed (native modules are rebuilt), so the macOS arch is irrelevant.
         codexDmg = pkgs.fetchurl {
-          url = "https://persistent.oaistatic.com/codex-app-prod/ChatGPT.dmg";
-          hash = "sha256-b2evfi+TQJOriv687BE3TUDI24+RAPtmIPJBVUAdgxk=";
+          url = "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-arm64-${codexVersion}.zip";
+          hash = "sha256-/9w1GlBxBdVddGTjNAMCx1i4pUuSZxHEsVvzc8y0fWQ=";
         };
 
-        codexVersion = "26.707.31428";
         electronVersion = "42.1.0";
         electronPlatform =
           {
