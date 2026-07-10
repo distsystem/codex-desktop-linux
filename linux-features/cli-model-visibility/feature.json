@@ -1,0 +1,9 @@
+{
+  "id": "cli-model-visibility",
+  "title": "CLI Model Visibility",
+  "description": "Opt-in desktop model picker support for the full non-hidden model catalog reported by Codex CLI, bypassing the Statsig availability allowlist.",
+  "defaultEnabled": false,
+  "entrypoints": {
+    "patchDescriptors": "./patch.js"
+  }
+}

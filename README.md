@@ -281,6 +281,7 @@ requirements, known limitations, configuration, and tests.
 | `chatgpt-dots-any-country` | Keep ChatGPT Dots entry points visible when the account response is country-gated | [Docs](linux-features/chatgpt-dots-any-country/README.md) |
 | `chatgpt-sidebar-separate-history` | Default the ChatGPT history filter to Chat and remember Chat / Work / All selections | [Docs](linux-features/chatgpt-sidebar-separate-history/README.md) |
 | `chronicle-skysight` | Opt-in Linux desktop activity memory and restricted Skysight MCP tools | [Docs](linux-features/chronicle-skysight/README.md) |
+| `cli-model-visibility` | Show the full non-hidden CLI model catalog in the desktop picker | [Docs](linux-features/cli-model-visibility/README.md) |
 | `codex-micro` | Work Louder Codex Micro hotplug and hidraw policy using upstream `node-hid` | [Docs](linux-features/codex-micro/README.md) |
 | `community-features-in-gui-settings` | Browse public features, declared subfeatures and enabled local features atop General settings; build-selection counts and statuses, English and Simplified Chinese UI | [Docs](linux-features/community-features-in-gui-settings/README.md) |
 | `community-profile-isolation` | Isolate Community Codex/Electron state and child CLI resolution from official ChatGPT | [Docs](linux-features/community-profile-isolation/README.md) |
@@ -341,6 +342,9 @@ With `shared-app-server-socket` enabled and Desktop running, use
 
 Account rollouts and server-side ChatGPT features remain controlled by OpenAI.
 Rebuilding this project does not unlock an account rollout.
+`cli-model-visibility` drops the desktop availability allowlist so the CLI
+catalog drives the picker; entitlement stays enforced by the backend at
+request time.
 
 For CSS font fallback lists, the optional
 [`ui-tweaks` custom font input](linux-features/ui-tweaks/README.md#appearancecustomfontinput)

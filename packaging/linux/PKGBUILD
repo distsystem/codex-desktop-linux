@@ -131,6 +131,7 @@ prepare() {
     "read-aloud-mcp",
     "remote-control-ui",
     "remote-mobile-control",
+    "cli-model-visibility",
     "computer-use-linux",
     "tray-usage",
     "frameless-titlebar",
