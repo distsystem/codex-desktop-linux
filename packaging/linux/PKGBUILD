@@ -96,7 +96,7 @@ prepare() {
     # Enable every Linux feature; the in-app Computer Use UI is opened via the
     # env flag in build().
     cat > linux-features/features.json <<'JSON'
-{"enabled":["open-target-discovery","zed-opener","copilot-reasoning-effort","read-aloud","read-aloud-mcp","conversation-mode","remote-control-ui","remote-mobile-control"]}
+{"enabled":["open-target-discovery","zed-opener","copilot-reasoning-effort","read-aloud","read-aloud-mcp","conversation-mode","remote-control-ui","remote-mobile-control","cli-model-visibility"]}
 JSON
 }
 
