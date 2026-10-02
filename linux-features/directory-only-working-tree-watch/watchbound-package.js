@@ -549,47 +549,22 @@ async function defaultMaterializePackage(request) {
       }
       source = request.archiveEnvironment;
     } else {
-      const packOutput = run(
+      run(
         "npm",
         [
           "pack",
           `${request.name}@${request.version}`,
           "--ignore-scripts",
-          "--json",
           "--pack-destination",
           temporaryRoot,
         ],
         { env: { ...process.env, npm_config_ignore_scripts: "true" } },
       );
-      let packResult;
-      try {
-        const packResults = JSON.parse(packOutput);
-        if (Array.isArray(packResults) && packResults.length === 1) {
-          [packResult] = packResults;
-        } else if (
-          packResults != null &&
-          typeof packResults === "object" &&
-          Object.keys(packResults).length === 1
-        ) {
-          [packResult] = Object.values(packResults);
-        } else {
-          throw new Error("npm pack did not return exactly one archive");
-        }
-        if (
-          packResult == null ||
-          typeof packResult !== "object" ||
-          packResult.name !== request.name ||
-          packResult.version !== request.version
-        ) {
-          throw new Error("npm pack returned unexpected package metadata");
-        }
-      } catch (error) {
-        throw new Error(`Could not parse npm pack output: ${error.message}`);
+      const archives = fs.readdirSync(temporaryRoot).filter((name) => name.endsWith(".tgz"));
+      if (archives.length !== 1) {
+        throw new Error(`npm pack did not produce exactly one archive in ${temporaryRoot}`);
       }
-      archivePath = path.join(
-        temporaryRoot,
-        safeRelativeFilePath(packResult.filename, "Watchbound npm archive"),
-      );
+      archivePath = path.join(temporaryRoot, archives[0]);
       source = "npm";
     }
 

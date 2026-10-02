@@ -36,6 +36,7 @@ const {
 } = require("./patch.js");
 const {
   commitPackageDirectoryNoReplace,
+  defaultMaterializePackage,
   packageHelperExitCode,
   packageTarget,
   stageWatchboundPackages,
@@ -6328,4 +6329,45 @@ test("the durable historical Owl acceptance record is passing and sanitized", ()
   );
   assert.doesNotMatch(runtimeHarness, /42\.3\.0/u);
   assert.doesNotMatch(runtimeHarness, /process\.report/u);
+});
+
+test("default package materialization finds the npm pack archive whatever the --json shape", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "watchbound-npm-pack-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "package"));
+  fs.writeFileSync(path.join(root, "package", "package.json"), "{}\n");
+  const archive = path.join(root, "watchbound-2.1.2.tgz");
+  childProcess.execFileSync("tar", ["-czf", archive, "-C", root, "package"]);
+  const contents = fs.readFileSync(archive);
+
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "npm"),
+    [
+      "#!/bin/sh",
+      'while [ $# -gt 0 ]; do [ "$1" = --pack-destination ] && dest=$2; shift; done',
+      `cp '${archive}' "$dest/watchbound-2.1.2.tgz"`,
+      `printf '{"watchbound":{"filename":"watchbound-2.1.2.tgz"}}\\n'`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath}`;
+  t.after(() => {
+    process.env.PATH = previousPath;
+  });
+
+  const materialized = await defaultMaterializePackage({
+    name: "watchbound",
+    version: "2.1.2",
+    integrity: `sha512-${crypto.createHash("sha512").update(contents).digest("base64")}`,
+    shasum: crypto.createHash("sha1").update(contents).digest("hex"),
+    sha256: crypto.createHash("sha256").update(contents).digest("hex"),
+    archiveEnvironment: "CODEX_WATCHBOUND_TEST_UNSET_ARCHIVE",
+  });
+  t.after(() => materialized.cleanup());
+  assert.equal(materialized.source, "npm");
+  assert.ok(fs.existsSync(path.join(materialized.packageDir, "package.json")));
 });
