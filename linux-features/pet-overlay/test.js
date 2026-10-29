@@ -670,6 +670,64 @@ test("unlocked mode preserves a visible manual window position when no tray need
   assert.equal(controller.codexPetOverlayManualPosition, true);
 });
 
+test("unlocked mode resets an off-screen saved window to the configured gravity", () => {
+  const patched = applyPetOverlayPatch(currentAvatarOverlayBundleFixture(), {
+    feature: { manifest: { petOverlay: { lockPosition: false, margin: 24, gravity: "bottom-right" } }, settings: {} },
+  });
+  const { controller } = controllerFromPatchedSource(patched);
+  const layout = {
+    anchor: { x: -1063, y: -205, width: 40, height: 40 },
+    mascot: { left: 316, top: 280, width: 40, height: 40 },
+    placement: "top-end",
+    tray: null,
+    windowBounds: { x: -1063, y: -205, width: 356, height: 320 },
+  };
+
+  const result = controller.codexPetOverlayLayoutForDisplay(
+    { workArea: { x: 0, y: 0, width: 1920, height: 1080 } },
+    layout,
+    {
+      getBounds: () => ({ x: -1063, y: -205, width: 356, height: 320 }),
+      isVisible: () => true,
+      isDestroyed: () => false,
+    },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.windowBounds)),
+    { x: 1540, y: 736, width: 356, height: 320 },
+  );
+});
+
+test("unlocked mode keeps an on-screen saved window when the window is not mapped", () => {
+  const patched = applyPetOverlayPatch(currentAvatarOverlayBundleFixture(), {
+    feature: { manifest: { petOverlay: { lockPosition: false, margin: 24, gravity: "bottom-right" } }, settings: {} },
+  });
+  const { controller } = controllerFromPatchedSource(patched);
+  const layout = {
+    anchor: { x: 1856, y: 1016, width: 40, height: 40 },
+    mascot: { left: 316, top: 280, width: 40, height: 40 },
+    placement: "top-end",
+    tray: null,
+    windowBounds: { x: 1540, y: 736, width: 356, height: 320 },
+  };
+
+  const result = controller.codexPetOverlayLayoutForDisplay(
+    { workArea: { x: 0, y: 0, width: 1920, height: 1080 } },
+    layout,
+    {
+      getBounds: () => null,
+      isVisible: () => false,
+      isDestroyed: () => false,
+    },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.windowBounds)),
+    { x: 1540, y: 736, width: 356, height: 320 },
+  );
+});
+
 test("unlocked layout does not re-anchor while a drag is active", () => {
   const patched = applyPetOverlayPatch(currentAvatarOverlayBundleFixture());
   const { controller } = controllerFromPatchedSource(patched);
