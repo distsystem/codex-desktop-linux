@@ -362,45 +362,48 @@ function applyCatalogPatch(source, context = {}) {
     return source;
   }
 
-  const patchedNormalizer =
-    normalizer.source.slice(0, returnIndex) +
-    ` ${CATALOG_PATCH_MARKER}(` +
-    normalizer.source.slice(returnIndex, closingIndex) +
-    ",codexLinuxDefaultPresetsConfigured)" +
-    normalizer.source.slice(closingIndex);
+  // The shipped resolver can enclose the normalizer. Insert both edits at
+  // original offsets and apply them back to front, so an inner insert never
+  // invalidates an outer section's end index.
   const catalogParameter = resolverSignature[1];
-  const patchedResolver =
-    resolver.source.slice(0, resolverOptionsEnd) +
-    `,...${catalogParameter}?.${CATALOG_PRESET_OPTIONS_KEY}??[]` +
-    resolver.source.slice(resolverOptionsEnd);
+  const insertions = [
+    { index: normalizer.start + returnIndex, text: ` ${CATALOG_PATCH_MARKER}(` },
+    { index: normalizer.start + closingIndex, text: ",codexLinuxDefaultPresetsConfigured)" },
+    {
+      index: resolver.start + resolverOptionsEnd,
+      text: `,...${catalogParameter}?.${CATALOG_PRESET_OPTIONS_KEY}??[]`,
+    },
+  ].sort((left, right) => right.index - left.index);
+
+  let patchedSource = source;
+  for (const insertion of insertions) {
+    patchedSource =
+      patchedSource.slice(0, insertion.index) +
+      insertion.text +
+      patchedSource.slice(insertion.index);
+  }
+  const helperIndex = Math.min(normalizer.start, resolver.start);
+  patchedSource =
+    patchedSource.slice(0, helperIndex) +
+    catalogRuntimeHelper(presets) +
+    patchedSource.slice(helperIndex);
+
+  const patchedNormalizer = catalogNormalizerSection(patchedSource);
+  const patchedResolver = catalogSelectionResolverSection(patchedSource);
   if (
-    !keepsSectionParseable(normalizer.source, patchedNormalizer) ||
-    !keepsSectionParseable(resolver.source, patchedResolver)
+    catalogPatchContract(patchedSource) !== "applied" ||
+    patchedNormalizer == null ||
+    patchedResolver == null ||
+    !keepsSectionParseable(normalizer.source, patchedNormalizer.source) ||
+    !keepsSectionParseable(resolver.source, patchedResolver.source)
   ) {
     warn(
-      "Patched ChatGPT model catalog section no longer parses",
+      "Patched ChatGPT model catalog contract is incomplete or no longer parses",
       "model picker Default catalog patch",
     );
     return source;
   }
-
-  const replacements = [
-    { ...normalizer, source: patchedNormalizer },
-    { ...resolver, source: patchedResolver },
-  ].sort((left, right) => right.start - left.start);
-  let patchedSource = source;
-  for (const replacement of replacements) {
-    patchedSource =
-      patchedSource.slice(0, replacement.start) +
-      replacement.source +
-      patchedSource.slice(replacement.end);
-  }
-  const helperIndex = Math.min(normalizer.start, resolver.start);
-  return (
-    patchedSource.slice(0, helperIndex) +
-    catalogRuntimeHelper(presets) +
-    patchedSource.slice(helperIndex)
-  );
+  return patchedSource;
 }
 
 function sliderResolverSection(source) {

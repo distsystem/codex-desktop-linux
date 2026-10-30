@@ -67,6 +67,26 @@ function catalogFixture(name = "FOr") {
   ].join("");
 }
 
+function nestedCatalogFixture() {
+  return [
+    "function Outer(e,t){",
+    "function FOr(e){",
+    "let d=e.slider_settings.flatMap(e=>e),",
+    "f=e.defaultThinkingEffortByModelSlug,p=e.defaultModelSlug,S=[],",
+    "w=(e.internalOptions??[]).flatMap(e=>e.thinkingEfforts==null?[e]:",
+    "e.thinkingEfforts.map(t=>{let n=t.label;return{slug:e.slug,thinkingEffort:t.effort,title:n}}));",
+    "return S.length>0&&S.push(`fast`),{categories:e.categories,modelConfigBySlug:e.modelConfigBySlug,",
+    "defaultThinkingEffortByModelSlug:f,defaultModelSlug:p,",
+    "internalOptions:w,options:e.options.map(e=>{let t=e;return{...t}}),sliderSettings:d,",
+    "versionOptions:e.versionOptions,workspaceModelPolicy:e.workspaceModelPolicy}}",
+    "let n=[...e?.options??[],...e?.internalOptions??[],",
+    "...e?.versionOptions?.flatMap(e=>e.options)??[]],",
+    "r=t.thinkingEffort??e?.defaultThinkingEffortByModelSlug?.[t.slug]??null,",
+    "i=n.find(e=>e.slug===t.slug&&(e.thinkingEffort??null)===r);",
+    "return i!=null||t.thinkingEffort!=null?i:n.find(e=>e.slug===t.slug)}",
+  ].join("");
+}
+
 function powerSelectionResolverFixture(name = "Picker") {
   return [
     `function ${name}(e,t,n,{enabledReasoningEfforts:r,fallbackModelLabel:i,isTppConversation:a=!1,useMergedPicker:o=!1,modelLimits:s,selectionMode:c=\`default\`,showModelPrefix:l=!1,unavailableModelSlugs:u=new Set}={}){`,
@@ -346,6 +366,18 @@ test("catalog patch has one semantic target, is executable, and is idempotent", 
     })).thinkingEffort,
     "extended",
   );
+});
+
+test("catalog patch keeps both edits when the normalizer is nested inside the resolver", () => {
+  const presets = context([{ model: "gpt-6-astra", effort: "medium", default: true }]);
+  const source = nestedCatalogFixture();
+  assert.equal(catalogPatchContract(source), "current");
+  const patched = applyCatalogPatch(source, presets);
+  assert.equal(catalogPatchContract(patched), "applied");
+  assert.equal((patched.match(new RegExp(CATALOG_PATCH_MARKER, "g")) ?? []).length, 2);
+  assert.equal((patched.match(new RegExp(CATALOG_PRESET_OPTIONS_KEY, "g")) ?? []).length, 2);
+  assert.doesNotThrow(() => new Function(patched));
+  assert.equal(applyCatalogPatch(patched, presets), patched);
 });
 
 test("catalog patch fails closed on drift, duplicate, and partial states", () => {
